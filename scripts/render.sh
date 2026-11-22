@@ -434,10 +434,12 @@ if [[ -n "$SUBTITLE" ]]; then
 fi
 if [[ -n "$SRT_FILE" ]]; then
   # libass renders SRT with a default PlayResY of 288, so style sizes are
-  # scaled by video_height/288 (6.67x at 1920): FontSize 14 ≈ 93 px tall,
-  # MarginV 22 ≈ 147 px from the bottom. (FontSize 30 here would render
-  # ~200 px tall and sit mid-frame — verified the hard way, 22 Nov 2026.)
-  OV+=",subtitles='${SRT_FILE}':force_style='FontName=${CAPTION_FONT},FontSize=14,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=3,Shadow=0,Alignment=2,MarginV=22'"
+  # scaled by video_height/288 (6.67x at 1920): FontSize 16 ≈ 107 px tall,
+  # MarginV 115 ≈ 767 px from the bottom — the caption sits just below the
+  # centre of the frame (owner: too low before, move up + a bit bigger).
+  # (FontSize 30 here would render ~200 px tall and sit mid-frame —
+  # verified the hard way, 22 Nov 2026.)
+  OV+=",subtitles='${SRT_FILE}':force_style='FontName=${CAPTION_FONT},FontSize=16,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=3,Shadow=0,Alignment=2,MarginV=115'"
 fi
 OV+=",fade=t=in:st=0:d=0.5,fade=t=out:st=${FADE_OUT_START}:d=0.5[vout];"
 FC+="$OV"

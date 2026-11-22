@@ -106,7 +106,9 @@ line 2 6.7–13.3 s, line 3 13.3–20 s. Captions are
   libass caption renderer finds it.
 - **Title:** 118 px white caps with a heavy black outline.
   **Subtitle:** 64 px orange `#FF9F1C` caps with a black outline.
-  **Captions:** Anton caps, white with a heavy black outline.
+  **Captions:** Anton caps, white with a heavy black outline — v3.2:
+  FontSize 16, placed just below the centre of the frame (MarginV 115),
+  per the owner's approval 22 Nov 2026.
 - **Clip count for a full 20 s reel:** the crossfades eat (N−1) × 0.5 s, so
   four 5 s clips total 20.4 s but render only ~19 s. Supply **five 5 s
   clips** (25.5 s total) and the planner trims to an exact 20 s reel.
