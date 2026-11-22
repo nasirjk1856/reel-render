@@ -1,0 +1,92 @@
+name: Render Reel
+
+# Renders a 20-second vertical reel (1080x1920, H.264 + AAC) with FFmpeg on a
+# GitHub-hosted runner: joins motion clip(s), adds a free edge-tts voiceover,
+# burns captions in. Free on GitHub Free: 2,000 Linux minutes/month on a
+# private repo (unlimited on a public repo). One 20 s reel takes ~1-3 min.
+# No secrets, no paid services, no third-party actions beyond
+# actions/checkout and actions/upload-artifact.
+#
+# Clip source: the motion clips are supplied by the upstream agent
+# (Agent 1 / Agent 2 in n8n) as direct .mp4 URLs. This repo does not choose
+# or generate the footage — it only assembles what it is given.
+
+on:
+  workflow_dispatch:
+    inputs:
+      footage_url:
+        description: "Direct .mp4 URL(s) of the motion clip(s), comma-separated for more than one (joined in order)"
+        required: true
+        type: string
+      title_text:
+        description: "Title text drawn on the reel"
+        required: true
+        type: string
+      subtitle_text:
+        description: "Subtitle text drawn under the title (optional)"
+        required: false
+        default: ""
+        type: string
+      voiceover_text:
+        description: "Voiceover script — spoken with free edge-tts (optional; omit for no voiceover)"
+        required: false
+        default: ""
+        type: string
+      voice_name:
+        description: "edge-tts voice (default en-US-GuyNeural, clear male English)"
+        required: false
+        default: "en-US-GuyNeural"
+        type: string
+      caption_lines:
+        description: "Captions, one per line (optional; split evenly across the reel)"
+        required: false
+        default: ""
+        type: string
+      duration_seconds:
+        description: "Reel length in seconds"
+        required: false
+        default: "20"
+        type: string
+  repository_dispatch:
+    types: [render-reel]
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg + edge-tts
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python3 -m pip install --break-system-packages edge-tts
+
+      - name: Render reel
+        env:
+          FOOTAGE_URL: ${{ github.event.inputs.footage_url || github.event.client_payload.footage_url }}
+          TITLE_TEXT: ${{ github.event.inputs.title_text || github.event.client_payload.title_text }}
+          SUBTITLE_TEXT: ${{ github.event.inputs.subtitle_text || github.event.client_payload.subtitle_text }}
+          VOICEOVER_TEXT: ${{ github.event.inputs.voiceover_text || github.event.client_payload.voiceover_text }}
+          VOICE_NAME: ${{ github.event.inputs.voice_name || github.event.client_payload.voice_name || 'en-US-GuyNeural' }}
+          CAPTION_LINES: ${{ github.event.inputs.caption_lines || github.event.client_payload.caption_lines }}
+          DURATION_SECONDS: ${{ github.event.inputs.duration_seconds || github.event.client_payload.duration_seconds || '20' }}
+        run: |
+          bash scripts/render.sh \
+            --clips "$FOOTAGE_URL" \
+            --title "$TITLE_TEXT" \
+            --subtitle "$SUBTITLE_TEXT" \
+            --voiceover-text "$VOICEOVER_TEXT" \
+            --voice "$VOICE_NAME" \
+            --captions "$CAPTION_LINES" \
+            --duration "$DURATION_SECONDS" \
+            --start 0 \
+            --output reel.mp4
+
+      - name: Upload reel
+        uses: actions/upload-artifact@v4
+        with:
+          name: reel
+          path: reel.mp4
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,17 @@
+# Local test outputs and downloads — never commit rendered reels or footage.
+reel.mp4
+*.mp4
+output/
+footage/
+test-output/
+*.log
+
+# Other agents' scratch work in this folder (not part of this repo).
+hf-test/
+venv/
+
+# Environment / secrets — this repo must never contain a key or token.
+.env
+.env.*
+*.pem
+*.key
