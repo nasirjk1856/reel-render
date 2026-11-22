@@ -137,12 +137,28 @@ escape_drawtext() {
 TITLE_ESC="$(escape_drawtext "$TITLE")"
 SUBTITLE_ESC="$(escape_drawtext "$SUBTITLE")"
 
-# --- Font: prefer the DejaVu Bold file, fall back to the fontconfig name ----
-if [[ -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf ]]; then
+# --- Font: repo-bundled Anton (bold condensed display face, OFL — the
+# "GTA 6 poster" look the owner asked for: heavy caps, white + orange).
+# Registered with fontconfig too, because libass (captions) resolves fonts
+# through fontconfig, not through drawtext's fontfile. Falls back to DejaVu
+# Bold when Anton is missing. ---------------------------------------------
+ANTON_FONT=""
+for cand in "$(dirname "$0")/../fonts/Anton-Regular.ttf" "./fonts/Anton-Regular.ttf"; do
+  if [[ -f "$cand" ]]; then ANTON_FONT="$cand"; break; fi
+done
+if [[ -n "$ANTON_FONT" ]]; then
+  FONT_OPT="fontfile=$ANTON_FONT"
+  CAPTION_FONT="Anton"
+  mkdir -p "${HOME:-/tmp}/.local/share/fonts" 2>/dev/null || true
+  cp -n "$ANTON_FONT" "${HOME:-/tmp}/.local/share/fonts/" 2>/dev/null || true
+  command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
+elif [[ -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf ]]; then
   FONT_OPT="fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+  CAPTION_FONT="DejaVu Sans"
 else
   # drawtext with a font name needs fontconfig (present on ubuntu-latest).
   FONT_OPT="font='DejaVu Sans'"
+  CAPTION_FONT="DejaVu Sans"
 fi
 
 # --- 1. Resolve clips to local files ----------------------------------------
@@ -410,17 +426,18 @@ if (( HAS_AUDIO == 1 )); then
   for f in "${BED_FILES[@]}"; do INPUTS+=(-i "$f"); done
 fi
 
-# Overlays on the joined video.
-OV="[vx]drawtext=${FONT_OPT}:text='${TITLE_ESC}':fontcolor=white:fontsize=72:borderw=4:bordercolor=black:x=(w-text_w)/2:y=200"
+# Overlays on the joined video. Title white + subtitle glowing orange, in
+# heavy condensed caps (Anton) — the poster style the owner asked for.
+OV="[vx]drawtext=${FONT_OPT}:text='${TITLE_ESC}':fontcolor=white:fontsize=118:borderw=6:bordercolor=black:x=(w-text_w)/2:y=180"
 if [[ -n "$SUBTITLE" ]]; then
-  OV+=",drawtext=${FONT_OPT}:text='${SUBTITLE_ESC}':fontcolor=yellow:fontsize=44:borderw=3:bordercolor=black:x=(w-text_w)/2:y=300"
+  OV+=",drawtext=${FONT_OPT}:text='${SUBTITLE_ESC}':fontcolor=#FF9F1C:fontsize=64:borderw=4:bordercolor=black:x=(w-text_w)/2:y=330"
 fi
 if [[ -n "$SRT_FILE" ]]; then
   # libass renders SRT with a default PlayResY of 288, so style sizes are
-  # scaled by video_height/288 (6.67x at 1920): FontSize 12 ≈ 80 px tall,
+  # scaled by video_height/288 (6.67x at 1920): FontSize 14 ≈ 93 px tall,
   # MarginV 22 ≈ 147 px from the bottom. (FontSize 30 here would render
   # ~200 px tall and sit mid-frame — verified the hard way, 22 Nov 2026.)
-  OV+=",subtitles='${SRT_FILE}':force_style='FontName=DejaVu Sans,FontSize=12,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=2,Shadow=0,Alignment=2,MarginV=22'"
+  OV+=",subtitles='${SRT_FILE}':force_style='FontName=${CAPTION_FONT},FontSize=14,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=3,Shadow=0,Alignment=2,MarginV=22'"
 fi
 OV+=",fade=t=in:st=0:d=0.5,fade=t=out:st=${FADE_OUT_START}:d=0.5[vout];"
 FC+="$OV"

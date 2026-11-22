@@ -97,6 +97,20 @@ line 2 6.7–13.3 s, line 3 13.3–20 s. Captions are
   window as the video, so bed and picture stay in sync across the
   crossfades (v2 cut the bed from the full clip).
 
+## v3.1 text style — poster type (Anton, white + orange)
+
+- **Font:** `fonts/Anton-Regular.ttf` (Anton, SIL Open Font Licence —
+  bundled in this repo, no download needed on the runner). Title, subtitle
+  and captions all use it; DejaVu Sans Bold is the fallback if the file is
+  missing. The script registers Anton with fontconfig at run time so the
+  libass caption renderer finds it.
+- **Title:** 118 px white caps with a heavy black outline.
+  **Subtitle:** 64 px orange `#FF9F1C` caps with a black outline.
+  **Captions:** Anton caps, white with a heavy black outline.
+- **Clip count for a full 20 s reel:** the crossfades eat (N−1) × 0.5 s, so
+  four 5 s clips total 20.4 s but render only ~19 s. Supply **five 5 s
+  clips** (25.5 s total) and the planner trims to an exact 20 s reel.
+
 **`--start`:** `render.sh` defaults to skipping the first 2 s of each clip
 (v1 behaviour); the workflow passes `--start 0`, so agent-supplied clips
 are used exactly as given.
