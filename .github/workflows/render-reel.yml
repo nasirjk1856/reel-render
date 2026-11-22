@@ -33,12 +33,17 @@ on:
         default: ""
         type: string
       voice_name:
-        description: "edge-tts voice (default en-US-GuyNeural, clear male English)"
+        description: "Voice name — edge-tts voice (default en-US-GuyNeural) or Gemini prebuilt voice when tts_engine is gemini (default Kore)"
         required: false
         default: "en-US-GuyNeural"
         type: string
+      tts_engine:
+        description: "Voiceover engine: edge (default, free edge-tts, word-synced captions) or gemini (Gemini native TTS, needs the GEMINI_API_KEY secret, proportional captions)"
+        required: false
+        default: "edge"
+        type: string
       caption_lines:
-        description: "Captions, one per line (optional; word-synced to the voiceover when one line per spoken sentence, else split evenly)"
+        description: "Captions, one per line (optional; word-synced to the voiceover when one line per spoken sentence, else split evenly; proportionally timed for Gemini voices)"
         required: false
         default: ""
         type: string
@@ -69,6 +74,8 @@ jobs:
           SUBTITLE_TEXT: ${{ github.event.inputs.subtitle_text || github.event.client_payload.subtitle_text }}
           VOICEOVER_TEXT: ${{ github.event.inputs.voiceover_text || github.event.client_payload.voiceover_text }}
           VOICE_NAME: ${{ github.event.inputs.voice_name || github.event.client_payload.voice_name || 'en-US-GuyNeural' }}
+          TTS_ENGINE: ${{ github.event.inputs.tts_engine || github.event.client_payload.tts_engine || 'edge' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CAPTION_LINES: ${{ github.event.inputs.caption_lines || github.event.client_payload.caption_lines }}
           DURATION_SECONDS: ${{ github.event.inputs.duration_seconds || github.event.client_payload.duration_seconds || '20' }}
         run: |
@@ -78,6 +85,7 @@ jobs:
             --subtitle "$SUBTITLE_TEXT" \
             --voiceover-text "$VOICEOVER_TEXT" \
             --voice "$VOICE_NAME" \
+            --tts "$TTS_ENGINE" \
             --captions "$CAPTION_LINES" \
             --duration "$DURATION_SECONDS" \
             --start 0 \

@@ -62,11 +62,12 @@ reel source (it was only test footage for proving the render + motion).
 | `title_text` | yes | — | Big white title text, top of the reel. |
 | `subtitle_text` | no | `""` | Smaller yellow line under the title. Omit for title only. |
 | `voiceover_text` | no | `""` | Script to speak. Generated with free edge-tts (Microsoft neural voices). Omit for no voiceover. Write it in the voice's own script (Urdu script for `ur-PK-*`, Devanagari for `hi-IN-*`). |
-| `voice_name` | no | `en-US-GuyNeural` | Any edge-tts voice works. Urdu: `ur-PK-AsadNeural` (male), `ur-PK-UzmaNeural` (female). Hindi: `hi-IN-MadhurNeural` (male), `hi-IN-SwaraNeural` (female). English: `en-US-GuyNeural`, `en-US-AriaNeural`. |
-| `caption_lines` | no | `""` | Captions, one per line. **Word-synced** to the voiceover when there is one caption per spoken sentence (see below). |
+| `voice_name` | no | `en-US-GuyNeural` | Any edge-tts voice works. Urdu: `ur-PK-AsadNeural` (male), `ur-PK-UzmaNeural` (female). Hindi: `hi-IN-MadhurNeural` (male), `hi-IN-SwaraNeural` (female). English: `en-US-GuyNeural`, `en-US-AriaNeural`. With `tts_engine: gemini` this is the Gemini prebuilt voice (default `Kore` — firm narrator; others `Puck`, `Charon`, `Aoede`, `Zephyr`, ...). |
+| `tts_engine` | no | `edge` | `edge` (default, free edge-tts, word-synced captions) or `gemini` (Gemini native TTS — more natural, needs the `GEMINI_API_KEY` repo secret, proportional captions). |
+| `caption_lines` | no | `""` | Captions, one per line. **Word-synced** to the voiceover when there is one caption per spoken sentence (see below). For Gemini voices the timing is proportional instead. |
 | `duration_seconds` | no | `20` | Reel length in seconds. Clips should total at least this long. |
 
-**Caption timing (v3.3 rule):** when a voiceover is generated and there is
+**Caption timing (v3.3 rule, edge-tts):** when a voiceover is generated and there is
 exactly **one caption line per spoken sentence, in the same order**, each
 caption appears exactly while its sentence is spoken — the timings come
 from the edge-tts word boundaries, not a fixed grid. The caption language
@@ -77,6 +78,35 @@ even split across the reel's actual edited length (with a warning).
 **Caption rule for Agent 1:** one English line per voiceover sentence, in
 order — never more lines than sentences, never a summary that spans two
 sentences.
+
+**Caption timing (v3.4, Gemini voices):** Gemini TTS returns **no word
+timings**, so the v3.3 word sync cannot apply. Instead each caption covers
+its sentence's share of the voiceover's length, split by word count (a
+sentence with twice the words gets twice the time). Better than the even
+split, not as exact as word sync. Same rule: one caption line per spoken
+sentence, in order.
+
+## v3.4 — Gemini TTS voices (Hindi) + proportional captions
+
+- **Gemini TTS:** `--tts gemini` / `tts_engine: gemini` generates the
+  voiceover with `scripts/make_gemini_voiceover.py` (model
+  `gemini-2.5-flash-preview-tts`, key from the `GEMINI_API_KEY` env var —
+  a GitHub Actions secret on the repo, never in a file or in the dispatch).
+  Gemini voices sound more natural than edge-tts, and the same 30 voices
+  speak Hindi, Urdu and English — the script must still be written in the
+  voice's own language (Devanagari for Hindi). Added 22 Nov 2026 after
+  the owner said the Urdu edge-tts voice was hard to follow and asked for
+  a Hindi voice from Gemini. Default voice `Kore`.
+- **Free-tier question:** whether the free Gemini key can use the TTS
+  model is unproven — sources disagree (one pricing table lists Flash
+  TTS as free; another says generation models need a paid tier). If the
+  API refuses with a quota error, the run fails loudly and the reel is
+  not rendered; the fallback is edge-tts Hindi (`hi-IN-MadhurNeural`).
+- **Proportional captions:** `scripts/make_proportional_srt.py` (see the
+  v3.4 caption rule above). The sentence splitter now also understands
+  the Devanagari danda `।` (both timing helpers were fixed).
+- **The voice is still synthetic** — a truly human voice needs the owner
+  (or someone he chooses) to record it.
 
 ## v3.3 — word-synced captions + Urdu/Hindi voices
 

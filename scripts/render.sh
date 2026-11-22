@@ -27,6 +27,16 @@
 #                  pretending to have a voiceover it does not have.
 # --voice          edge-tts voice name (default: en-US-GuyNeural, clear male
 #                  English). Any edge-tts voice works, e.g. en-US-AriaNeural.
+#                  With --tts gemini this is the Gemini prebuilt voice
+#                  (default: Kore — firm narrator; others: Puck, Charon,
+#                  Aoede, Zephyr, ...). Gemini voices speak 24+ languages,
+#                  including Hindi.
+# --tts            Voiceover engine: "edge" (default, free edge-tts neural
+#                  voices, word-synced captions) or "gemini" (Gemini native
+#                  TTS — more natural, needs the GEMINI_API_KEY env var, a
+#                  GitHub Actions secret in the pipeline; captions use
+#                  proportional timing because Gemini returns no word
+#                  timings).
 # --voiceover-file Instead of generating, use a ready-made voiceover .mp3
 #                  (e.g. generated elsewhere). Mutually exclusive with
 #                  --voiceover-text.
@@ -47,6 +57,21 @@
 # --start          Seconds to skip at the start of EACH clip (default: 2,
 #                  kept from v1; pass 0 for pre-trimmed clips).
 # --output         Output file path (default: reel.mp4).
+#
+# v3.4 (new in v3.4):
+#   * Gemini TTS voiceovers: --tts gemini uses scripts/make_gemini_voiceover.py
+#     (model gemini-2.5-flash-preview-tts, key from the GEMINI_API_KEY env
+#     var) instead of edge-tts. Gemini voices sound more natural, and the
+#     same voices speak Hindi, Urdu and English — the voiceover script must
+#     still be written in the voice's language (Devanagari for Hindi).
+#     Free-tier availability of the TTS model is unproven — if the API
+#     refuses with a quota error, the run fails loudly; the fallback is
+#     edge-tts (hi-IN-MadhurNeural for Hindi).
+#   * Proportional captions for Gemini: Gemini returns no word timings, so
+#     scripts/make_proportional_srt.py splits the voiceover's length across
+#     its sentences by word count (a sentence with twice the words gets
+#     twice the time). Better than the even split, not as exact as the
+#     v3.3 word sync. Same rule: one caption line per spoken sentence.
 #
 # v3.3 (new in v3.3):
 #   * Word-synced captions: the voiceover is generated through
@@ -121,6 +146,7 @@ START=2
 OUTPUT="reel.mp4"
 VOICEOVER_TEXT=""
 VOICE="en-US-GuyNeural"
+TTS_ENGINE="edge"
 VOICEOVER_FILE=""
 CAPTIONS=""
 
@@ -136,6 +162,7 @@ while [[ $# -gt 0 ]]; do
     --output)        OUTPUT="$2"; shift 2 ;;
     --voiceover-text) VOICEOVER_TEXT="$2"; shift 2 ;;
     --voice)         VOICE="$2"; shift 2 ;;
+    --tts)           TTS_ENGINE="$2"; shift 2 ;;
     --voiceover-file) VOICEOVER_FILE="$2"; shift 2 ;;
     --captions)      CAPTIONS="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
@@ -356,12 +383,36 @@ if [[ -n "$VOICEOVER_FILE" ]]; then
   if [[ ! -f "$VOICEOVER_FILE" ]]; then echo "Voiceover file not found: $VOICEOVER_FILE" >&2; exit 2; fi
   VOICE_FILE="$VOICEOVER_FILE"
 elif [[ -n "$VOICEOVER_TEXT" ]]; then
+  if [[ "$TTS_ENGINE" != "edge" && "$TTS_ENGINE" != "gemini" ]]; then
+    echo "--tts must be edge or gemini (got: $TTS_ENGINE)" >&2; exit 2
+  fi
+  VOICE_FILE="$WORKDIR/voice.mp3"
+  if [[ "$TTS_ENGINE" == "gemini" ]]; then
+    # v3.4: Gemini native TTS (more natural; Hindi/Urdu/English voices).
+    # Needs the GEMINI_API_KEY env var (a GitHub Actions secret). No word
+    # timings come back, so WORDS_FILE stays empty and captions use the
+    # proportional timing of make_proportional_srt.py (section 5).
+    if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+      echo "ERROR: --tts gemini needs the GEMINI_API_KEY env var." >&2; exit 1
+    fi
+    GHELPER="$(dirname "$0")/make_gemini_voiceover.py"
+    if [[ ! -f "$GHELPER" ]]; then
+      echo "ERROR: $GHELPER is missing (needed for --tts gemini)." >&2; exit 1
+    fi
+    echo "Generating voiceover with Gemini TTS (voice: $VOICE)..."
+    if ! python3 "$GHELPER" --text "$VOICEOVER_TEXT" --voice "$VOICE" \
+         --out-audio "$VOICE_FILE"; then
+      echo "ERROR: Gemini TTS failed to generate the voiceover." >&2
+      echo "The reel was NOT rendered — a reel without its promised voiceover is worse than no reel." >&2
+      echo "Check the key, the voice name, and whether the free tier allows the TTS model (a quota refusal means billing is needed)." >&2
+      exit 1
+    fi
+  else
   if ! command -v edge-tts >/dev/null 2>&1 && ! python3 -c "import edge_tts" 2>/dev/null; then
     echo "edge-tts not found, installing it..."
     python3 -m pip install --break-system-packages edge-tts \
       || { echo "ERROR: could not install edge-tts (needs internet + pip)" >&2; exit 1; }
   fi
-  VOICE_FILE="$WORKDIR/voice.mp3"
   WORDS_FILE="$WORKDIR/words.json"
   echo "Generating voiceover with edge-tts (voice: $VOICE)..."
   HELPER="$(dirname "$0")/make_voiceover.py"
@@ -391,8 +442,9 @@ elif [[ -n "$VOICEOVER_TEXT" ]]; then
       exit 1
     fi
   fi
+  fi
   if [[ ! -s "$VOICE_FILE" ]]; then
-    echo "ERROR: edge-tts produced an empty voiceover file." >&2; exit 1
+    echo "ERROR: the voiceover file is empty." >&2; exit 1
   fi
   # The audio mix trims the voiceover to the reel length, so a voiceover
   # longer than the reel would lose its tail mid-sentence — say so loudly.
@@ -404,7 +456,28 @@ elif [[ -n "$VOICEOVER_TEXT" ]]; then
   fi
 fi
 
-# --- 5. Captions (word-synced when possible, else even split) --------------
+# --- 5. Captions (word-synced when possible, else proportional, else even) --
+# Even-split SRT builder (the last-resort fallback for every caption path).
+even_split_srt() {
+  python3 - "$CAPTIONS" "$FINAL_LEN" "$SRT_FILE" <<'PY'
+import sys
+text, dur, out = sys.argv[1], float(sys.argv[2]), sys.argv[3]
+lines = [l.strip() for l in text.splitlines() if l.strip()]
+if not lines:
+    sys.exit("no caption lines given")
+n = len(lines)
+step = dur / n
+def ts(s):
+    ms = int(round(s * 1000))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    sec, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+with open(out, "w") as f:
+    for i, line in enumerate(lines):
+        f.write(f"{i + 1}\n{ts(i * step)} --> {ts((i + 1) * step)}\n{line}\n\n")
+PY
+}
 SRT_FILE=""
 if [[ -n "$CAPTIONS" ]]; then
   SRT_FILE="$WORKDIR/captions.srt"
@@ -413,6 +486,7 @@ if [[ -n "$CAPTIONS" ]]; then
     cp "$CAPTIONS" "$SRT_FILE"
   else
     TIMED_HELPER="$(dirname "$0")/make_timed_srt.py"
+    PROP_HELPER="$(dirname "$0")/make_proportional_srt.py"
     if [[ -n "$VOICEOVER_TEXT" && -s "$WORDS_FILE" && -f "$TIMED_HELPER" ]]; then
       echo "Building word-synced captions from voiceover timings..."
       if python3 "$TIMED_HELPER" --words "$WORDS_FILE" --text "$VOICEOVER_TEXT" \
@@ -422,45 +496,25 @@ if [[ -n "$CAPTIONS" ]]; then
         echo "WARNING: word-synced captions could not be built (see above);" >&2
         echo "WARNING: falling back to the even split across ${FINAL_LEN}s." >&2
         SRT_FILE="$WORKDIR/captions.srt"
-        python3 - "$CAPTIONS" "$FINAL_LEN" "$SRT_FILE" <<'PY'
-import sys
-text, dur, out = sys.argv[1], float(sys.argv[2]), sys.argv[3]
-lines = [l.strip() for l in text.splitlines() if l.strip()]
-if not lines:
-    sys.exit("no caption lines given")
-n = len(lines)
-step = dur / n
-def ts(s):
-    ms = int(round(s * 1000))
-    h, ms = divmod(ms, 3600000)
-    m, ms = divmod(ms, 60000)
-    sec, ms = divmod(ms, 1000)
-    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
-with open(out, "w") as f:
-    for i, line in enumerate(lines):
-        f.write(f"{i + 1}\n{ts(i * step)} --> {ts((i + 1) * step)}\n{line}\n\n")
-PY
+        even_split_srt
+      fi
+    elif [[ "$TTS_ENGINE" == "gemini" && -n "$VOICEOVER_TEXT" && -s "$VOICE_FILE" && -f "$PROP_HELPER" ]]; then
+      # v3.4: Gemini TTS returns no word timings, so split the voiceover's
+      # length across its sentences by word count (better than even split).
+      echo "Building proportional captions from voiceover length..."
+      VDUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VOICE_FILE")
+      if python3 "$PROP_HELPER" --text "$VOICEOVER_TEXT" \
+           --captions "$CAPTIONS" --duration "$VDUR" --out "$SRT_FILE"; then
+        echo "Captions are proportionally timed to the voiceover."
+      else
+        echo "WARNING: proportional captions could not be built (see above);" >&2
+        echo "WARNING: falling back to the even split across ${FINAL_LEN}s." >&2
+        SRT_FILE="$WORKDIR/captions.srt"
+        even_split_srt
       fi
     else
       echo "Building timed captions (even split across ${FINAL_LEN}s)..."
-      python3 - "$CAPTIONS" "$FINAL_LEN" "$SRT_FILE" <<'PY'
-import sys
-text, dur, out = sys.argv[1], float(sys.argv[2]), sys.argv[3]
-lines = [l.strip() for l in text.splitlines() if l.strip()]
-if not lines:
-    sys.exit("no caption lines given")
-n = len(lines)
-step = dur / n
-def ts(s):
-    ms = int(round(s * 1000))
-    h, ms = divmod(ms, 3600000)
-    m, ms = divmod(ms, 60000)
-    sec, ms = divmod(ms, 1000)
-    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
-with open(out, "w") as f:
-    for i, line in enumerate(lines):
-        f.write(f"{i + 1}\n{ts(i * step)} --> {ts((i + 1) * step)}\n{line}\n\n")
-PY
+      even_split_srt
     fi
   fi
 fi

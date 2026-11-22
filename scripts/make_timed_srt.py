@@ -32,7 +32,8 @@ def norm(word):
 
 
 def split_sentences(text):
-    parts = re.split(r"(?<=[.!?؟۔])\s+", text.strip())
+    # Sentence ends: . ! ? plus Arabic ؟ / Urdu ۔ and Devanagari danda । ॥
+    parts = re.split(r"(?<=[.!?؟۔।॥])\s+", text.strip())
     return [p.strip() for p in parts if p.strip()]
 
 
