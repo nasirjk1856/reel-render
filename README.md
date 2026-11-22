@@ -61,16 +61,44 @@ reel source (it was only test footage for proving the render + motion).
 | `footage_url` | yes | — | Direct link(s) to `.mp4` file(s). Comma-separated for several clips — joined in order. Must be direct file URLs, not web pages. |
 | `title_text` | yes | — | Big white title text, top of the reel. |
 | `subtitle_text` | no | `""` | Smaller yellow line under the title. Omit for title only. |
-| `voiceover_text` | no | `""` | Script to speak. Generated with free edge-tts (Microsoft neural voices). Omit for no voiceover. |
-| `voice_name` | no | `en-US-GuyNeural` | Clear male English voice. Any edge-tts voice works (e.g. `en-US-AriaNeural`). |
-| `caption_lines` | no | `""` | Captions, one per line. Split **evenly** across the reel (see below). |
+| `voiceover_text` | no | `""` | Script to speak. Generated with free edge-tts (Microsoft neural voices). Omit for no voiceover. Write it in the voice's own script (Urdu script for `ur-PK-*`, Devanagari for `hi-IN-*`). |
+| `voice_name` | no | `en-US-GuyNeural` | Any edge-tts voice works. Urdu: `ur-PK-AsadNeural` (male), `ur-PK-UzmaNeural` (female). Hindi: `hi-IN-MadhurNeural` (male), `hi-IN-SwaraNeural` (female). English: `en-US-GuyNeural`, `en-US-AriaNeural`. |
+| `caption_lines` | no | `""` | Captions, one per line. **Word-synced** to the voiceover when there is one caption per spoken sentence (see below). |
 | `duration_seconds` | no | `20` | Reel length in seconds. Clips should total at least this long. |
 
-**Caption timing (v3 rule):** the lines are split evenly across the reel's
-**actual edited length** — with 3 lines over 20 s, line 1 shows 0–6.7 s,
-line 2 6.7–13.3 s, line 3 13.3–20 s. Captions are
-**not** word-synced to the voiceover. (A future version can use edge-tts
-`--write-subtitles` timestamps for real word timing.)
+**Caption timing (v3.3 rule):** when a voiceover is generated and there is
+exactly **one caption line per spoken sentence, in the same order**, each
+caption appears exactly while its sentence is spoken — the timings come
+from the edge-tts word boundaries, not a fixed grid. The caption language
+may differ from the voice language (e.g. an **Urdu voiceover with English
+captions**: line N is shown while sentence N is spoken). If the counts do
+not match, or the timings are unavailable, the lines fall back to the v3
+even split across the reel's actual edited length (with a warning).
+**Caption rule for Agent 1:** one English line per voiceover sentence, in
+order — never more lines than sentences, never a summary that spans two
+sentences.
+
+## v3.3 — word-synced captions + Urdu/Hindi voices
+
+- **Word-synced captions:** the voiceover is generated through
+  `scripts/make_voiceover.py`, which captures the edge-tts word-boundary
+  timings; `scripts/make_timed_srt.py` times each caption line to the exact
+  span of its spoken sentence. Fixed 22 Nov 2026 after the owner reported
+  the honey reel's captions did not match the voice (the v3 even split put
+  each line on a fixed 5 s grid while the voice spoke at its own pace).
+  Proven with a simulated boundary stream (5 entries, exact sentence
+  spans); the first live proof is the re-rendered honey reel.
+- **Urdu/Hindi voices:** any edge-tts voice via `--voice` /
+  `voice_name` — `ur-PK-AsadNeural`, `ur-PK-UzmaNeural`,
+  `hi-IN-MadhurNeural`, `hi-IN-SwaraNeural`. The voiceover script must be
+  written in the voice's own script (Urdu script, Devanagari) — Roman
+  Urdu/Hindi read aloud by these voices sounds wrong. Captions stay in
+  English, one line per spoken sentence. **The voice is still a synthetic
+  neural voice, not a human recording** — a truly human voice needs the
+  owner (or someone he chooses) to record it.
+- **Voiceover length guard:** the render logs the voiceover's duration and
+  warns loudly if it is longer than the reel (the audio mix would cut its
+  tail). Keep the script short enough to fit the reel — ~50 words for 20 s.
 
 ## v3 editing — crossfades, trimming, upscale
 
@@ -177,10 +205,11 @@ bash scripts/render.sh --clip clip1.mp4 --clip clip2.mp4 \
 newline-separated lines. `--voiceover-file` takes a ready `.mp3` instead
 of generating one with edge-tts.
 
-## Honest limits (v3)
+## Honest limits (v3.3)
 
 - Render takes **~1–3 minutes per reel** — fast, but not instant.
-- **Captions are evenly timed, not word-synced** to the voiceover.
+- **Captions are word-synced only when there is one caption per spoken
+  sentence** — otherwise they fall back to the even split.
 - **The voiceover is a synthetic neural voice, not a human recording.**
 - edge-tts needs internet on the runner (GitHub runners have direct
   internet; behind a strict proxy its websocket can fail — the script then

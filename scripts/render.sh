@@ -32,14 +32,43 @@
 #                  --voiceover-text.
 # --captions       Optional captions, either:
 #                    * a path to an .srt file, or
-#                    * newline-separated caption lines. The lines are split
-#                      evenly across the reel's ACTUAL edited length (v3
-#                      timing: NOT word-synced — each line shows for
-#                      actual/lines).
+#                    * newline-separated caption lines. When a voiceover is
+#                      generated from --voiceover-text AND there is exactly
+#                      one caption line per spoken sentence (in order), the
+#                      lines are WORD-SYNCED: each caption appears exactly
+#                      while its sentence is spoken (v3.3, from the
+#                      edge-tts word-boundary timings). Otherwise the lines
+#                      are split evenly across the reel's ACTUAL edited
+#                      length (v3 timing).
+#                    Caption language can differ from the voice language
+#                    (e.g. Urdu voice + English captions) — the sync follows
+#                    the spoken sentences, not the caption words.
 # --duration       Reel length in seconds (default: 20).
 # --start          Seconds to skip at the start of EACH clip (default: 2,
 #                  kept from v1; pass 0 for pre-trimmed clips).
 # --output         Output file path (default: reel.mp4).
+#
+# v3.3 (new in v3.3):
+#   * Word-synced captions: the voiceover is generated through
+#     scripts/make_voiceover.py, which captures edge-tts WordBoundary
+#     timings; scripts/make_timed_srt.py then times each caption line to
+#     the exact span of its spoken sentence. No more fixed 5-second grid —
+#     a caption can no longer show while the voice is saying something
+#     else. If timings are missing or a sentence cannot be matched, the
+#     render falls back to the v3 even split (with a warning) instead of
+#     failing.
+#   * Urdu/Hindi voices: pass any edge-tts voice with --voice, e.g.
+#     ur-PK-AsadNeural (male Urdu), ur-PK-UzmaNeural (female Urdu),
+#     hi-IN-MadhurNeural (male Hindi), hi-IN-SwaraNeural (female Hindi).
+#     Write the voiceover script in the voice's own script (Urdu script
+#     for ur-PK-*, Devanagari for hi-IN-*) — Roman Urdu/Hindi read aloud
+#     by these voices sounds wrong. Captions stay in English.
+#   * Caption rule for word sync: ONE caption line per spoken sentence,
+#     in the same order as the script. A caption may be shorter than its
+#     sentence (a key phrase), but it must be the sentence's own words in
+#     the voice's language when the caption is in that language; for
+#     cross-language captions (Urdu voice, English captions) the pairing
+#     is positional — line N goes with sentence N.
 #
 # v3 editing (new in v3):
 #   * Clips are joined with 0.5 s CROSSFADES (xfade video + acrossfade
@@ -317,36 +346,65 @@ for f in "${CLIP_FILES[@]}"; do
 done
 
 # --- 4. Voiceover ------------------------------------------------------------
+# v3.3: generated through scripts/make_voiceover.py, which also captures
+# the edge-tts WordBoundary timings (scripts/make_timed_srt.py uses them
+# to sync the captions to the spoken sentences). If the helper is missing
+# (old checkout), fall back to the plain edge-tts CLI (no timings).
 VOICE_FILE=""
+WORDS_FILE=""
 if [[ -n "$VOICEOVER_FILE" ]]; then
   if [[ ! -f "$VOICEOVER_FILE" ]]; then echo "Voiceover file not found: $VOICEOVER_FILE" >&2; exit 2; fi
   VOICE_FILE="$VOICEOVER_FILE"
 elif [[ -n "$VOICEOVER_TEXT" ]]; then
-  if ! command -v edge-tts >/dev/null 2>&1; then
+  if ! command -v edge-tts >/dev/null 2>&1 && ! python3 -c "import edge_tts" 2>/dev/null; then
     echo "edge-tts not found, installing it..."
     python3 -m pip install --break-system-packages edge-tts \
       || { echo "ERROR: could not install edge-tts (needs internet + pip)" >&2; exit 1; }
   fi
   VOICE_FILE="$WORKDIR/voice.mp3"
+  WORDS_FILE="$WORKDIR/words.json"
   echo "Generating voiceover with edge-tts (voice: $VOICE)..."
-  EDGE_TTS_ARGS=(--voice "$VOICE" --text "$VOICEOVER_TEXT" --write-media "$VOICE_FILE")
-  # edge-tts uses aiohttp, which does not read proxy env vars; pass the
-  # proxy explicitly when one is set (this VM's egress proxy, for example).
-  if [[ -n "${https_proxy:-${HTTPS_PROXY:-}}" ]]; then
-    EDGE_TTS_ARGS+=(--proxy "${https_proxy:-$HTTPS_PROXY}")
-  fi
-  if ! edge-tts "${EDGE_TTS_ARGS[@]}"; then
-    echo "ERROR: edge-tts failed to generate the voiceover." >&2
-    echo "The reel was NOT rendered — a reel without its promised voiceover is worse than no reel." >&2
-    echo "Check the voice name, the network, and (behind a proxy) that the proxy allows the edge-tts websocket." >&2
-    exit 1
+  HELPER="$(dirname "$0")/make_voiceover.py"
+  if [[ -f "$HELPER" ]]; then
+    VO_ARGS=(--text "$VOICEOVER_TEXT" --voice "$VOICE"
+             --out-audio "$VOICE_FILE" --out-words "$WORDS_FILE")
+    if [[ -n "${https_proxy:-${HTTPS_PROXY:-}}" ]]; then
+      VO_ARGS+=(--proxy "${https_proxy:-$HTTPS_PROXY}")
+    fi
+    if ! python3 "$HELPER" "${VO_ARGS[@]}"; then
+      echo "ERROR: edge-tts failed to generate the voiceover." >&2
+      echo "The reel was NOT rendered — a reel without its promised voiceover is worse than no reel." >&2
+      echo "Check the voice name, the network, and (behind a proxy) that the proxy allows the edge-tts websocket." >&2
+      exit 1
+    fi
+  else
+    EDGE_TTS_ARGS=(--voice "$VOICE" --text "$VOICEOVER_TEXT" --write-media "$VOICE_FILE")
+    # edge-tts uses aiohttp, which does not read proxy env vars; pass the
+    # proxy explicitly when one is set (this VM's egress proxy, for example).
+    if [[ -n "${https_proxy:-${HTTPS_PROXY:-}}" ]]; then
+      EDGE_TTS_ARGS+=(--proxy "${https_proxy:-$HTTPS_PROXY}")
+    fi
+    if ! edge-tts "${EDGE_TTS_ARGS[@]}"; then
+      echo "ERROR: edge-tts failed to generate the voiceover." >&2
+      echo "The reel was NOT rendered — a reel without its promised voiceover is worse than no reel." >&2
+      echo "Check the voice name, the network, and (behind a proxy) that the proxy allows the edge-tts websocket." >&2
+      exit 1
+    fi
   fi
   if [[ ! -s "$VOICE_FILE" ]]; then
     echo "ERROR: edge-tts produced an empty voiceover file." >&2; exit 1
   fi
+  # The audio mix trims the voiceover to the reel length, so a voiceover
+  # longer than the reel would lose its tail mid-sentence — say so loudly.
+  VO_DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VOICE_FILE")
+  echo "Voiceover duration: ${VO_DUR}s (reel length: ${FINAL_LEN}s)"
+  if (( $(awk -v v="$VO_DUR" -v d="$FINAL_LEN" 'BEGIN { print (v > d) }') )); then
+    echo "WARNING: voiceover (${VO_DUR}s) is longer than the reel (${FINAL_LEN}s); its tail will be cut." >&2
+    echo "WARNING: shorten the voiceover text or raise --duration." >&2
+  fi
 fi
 
-# --- 5. Captions (timed to the FINAL edited length) --------------------------
+# --- 5. Captions (word-synced when possible, else even split) --------------
 SRT_FILE=""
 if [[ -n "$CAPTIONS" ]]; then
   SRT_FILE="$WORKDIR/captions.srt"
@@ -354,8 +412,17 @@ if [[ -n "$CAPTIONS" ]]; then
     echo "Using caption file: $CAPTIONS"
     cp "$CAPTIONS" "$SRT_FILE"
   else
-    echo "Building timed captions (even split across ${FINAL_LEN}s)..."
-    python3 - "$CAPTIONS" "$FINAL_LEN" "$SRT_FILE" <<'PY'
+    TIMED_HELPER="$(dirname "$0")/make_timed_srt.py"
+    if [[ -n "$VOICEOVER_TEXT" && -s "$WORDS_FILE" && -f "$TIMED_HELPER" ]]; then
+      echo "Building word-synced captions from voiceover timings..."
+      if python3 "$TIMED_HELPER" --words "$WORDS_FILE" --text "$VOICEOVER_TEXT" \
+           --captions "$CAPTIONS" --duration "$FINAL_LEN" --out "$SRT_FILE"; then
+        echo "Captions are word-synced to the voiceover."
+      else
+        echo "WARNING: word-synced captions could not be built (see above);" >&2
+        echo "WARNING: falling back to the even split across ${FINAL_LEN}s." >&2
+        SRT_FILE="$WORKDIR/captions.srt"
+        python3 - "$CAPTIONS" "$FINAL_LEN" "$SRT_FILE" <<'PY'
 import sys
 text, dur, out = sys.argv[1], float(sys.argv[2]), sys.argv[3]
 lines = [l.strip() for l in text.splitlines() if l.strip()]
@@ -373,6 +440,28 @@ with open(out, "w") as f:
     for i, line in enumerate(lines):
         f.write(f"{i + 1}\n{ts(i * step)} --> {ts((i + 1) * step)}\n{line}\n\n")
 PY
+      fi
+    else
+      echo "Building timed captions (even split across ${FINAL_LEN}s)..."
+      python3 - "$CAPTIONS" "$FINAL_LEN" "$SRT_FILE" <<'PY'
+import sys
+text, dur, out = sys.argv[1], float(sys.argv[2]), sys.argv[3]
+lines = [l.strip() for l in text.splitlines() if l.strip()]
+if not lines:
+    sys.exit("no caption lines given")
+n = len(lines)
+step = dur / n
+def ts(s):
+    ms = int(round(s * 1000))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    sec, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+with open(out, "w") as f:
+    for i, line in enumerate(lines):
+        f.write(f"{i + 1}\n{ts(i * step)} --> {ts((i + 1) * step)}\n{line}\n\n")
+PY
+    fi
   fi
 fi
 

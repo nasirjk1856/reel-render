@@ -38,7 +38,7 @@ on:
         default: "en-US-GuyNeural"
         type: string
       caption_lines:
-        description: "Captions, one per line (optional; split evenly across the reel)"
+        description: "Captions, one per line (optional; word-synced to the voiceover when one line per spoken sentence, else split evenly)"
         required: false
         default: ""
         type: string
